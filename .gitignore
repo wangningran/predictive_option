@@ -1,0 +1,7 @@
+# this repo is public: the trade journal stays on your own machine
+data/
+*.png
+backtest*.csv
+__pycache__/
+.pytest_cache/
+.cache/
