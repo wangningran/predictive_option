@@ -143,7 +143,7 @@ def _earnings(provider, ticker, is_fund, today, cfg):
     if provider.is_fund(ticker):
         return None, False
     if cfg.avoid_earnings:
-        raise LookupError("查不到下次财报日")
+        raise LookupError("no upcoming earnings date found")
     return None, True
 
 
@@ -186,15 +186,15 @@ def _score(idea):
         idea.iv_hv = idea.atm_iv / m.hv20
         score *= min(max(idea.iv_hv, 0.7), 1.5)
         if idea.iv_hv < 1:
-            flags.append("IV低于实际波动")
+            flags.append("IV below realized")
     if m and m.above_200 is False:
         score *= 0.75
-        flags.append("200日线下方")
+        flags.append("below 200-day avg")
     if m and m.chg_1m == m.chg_1m and m.chg_1m < -0.15:
         score *= 0.75
-        flags.append(f"1个月跌{-m.chg_1m:.0%}")
+        flags.append(f"down {-m.chg_1m:.0%} in a month")
     if idea.earnings_unknown:
-        flags.append("财报日未知")
+        flags.append("earnings date unknown")
     idea.score, idea.flags = score, flags
     return idea
 
@@ -226,7 +226,7 @@ def scan(provider, cfg, tickers, cash_available, today=None, funds=(), workers=4
         try:
             metrics[t] = research.compute(histories[t])
         except (KeyError, ValueError):
-            errors[t] = "没有价格历史"
+            errors[t] = "no price history"
 
     def one(t):
         try:
@@ -286,5 +286,5 @@ def screen_calls(provider, cfg, positions, today=None, log=print):
                         cushion=(q.strike - S) / S, earnings=earnings,
                     ))
         except Exception as e:
-            log(f"  {ticker}: 获取失败（{e}）")
+            log(f"  {ticker}: fetch failed ({e})")
     return sorted(out, key=lambda c: c.annualized, reverse=True)

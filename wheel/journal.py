@@ -111,12 +111,12 @@ class Journal:
         if kind not in ("put", "call"):
             raise ValueError("kind must be put or call")
         if long_strike and (kind != "put" or not 0 < long_strike < strike):
-            raise ValueError("价差只支持 Put，且买入腿的行权价必须低于卖出腿")
+            raise ValueError("spreads must be puts, with the long strike below the short strike")
         if kind == "call":
             held = self.positions().get(ticker.upper(), {}).get("shares", 0)
             covered = sum(t.contracts for t in self.open_trades() if t.ticker == ticker.upper() and t.kind == "call")
             if held < (covered + contracts) * 100:
-                raise ValueError(f"{ticker.upper()} 只持有 {held} 股，这张 Call 会变成裸卖，已拒绝")
+                raise ValueError(f"only {held} shares of {ticker.upper()} held; this call would be naked, refused")
         trade = OptionTrade(
             id=max((t.id for t in self.trades), default=0) + 1,
             open_date=(on or date.today()).isoformat(), ticker=ticker.upper(), kind=kind,
@@ -145,7 +145,8 @@ class Journal:
     def assign(self, trade_id, fees=0.0, on=None):
         t = self.get(trade_id)
         if t.is_spread:
-            raise ValueError("价差不能记为被行权：请用 log close 记录平仓价（两腿都价内时，净价等于行权价之差）")
+            raise ValueError("a spread cannot be logged as assigned: use log close with the net closing price "
+                             "(with both legs in the money it equals the strike difference)")
         on = on or t.expiry_date
         self._close(trade_id, ASSIGNED, 0.0, 0.0, on)
         shares = 100 * t.contracts * (1 if t.kind == "put" else -1)

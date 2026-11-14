@@ -113,10 +113,10 @@ def test_monitor_alerts(tmp_path):
     j.open("ABC", "put", 20, "2026-10-01", 1, 0.40, 0.65)       # already expired
     prov = FakeProvider({"ABC": 30.0, "XYZ": 24.0})
     alerts, rows = check(prov, j, cfg, today=TODAY)
-    assert any(a.trade_id == 1 and "已赚到" in a.message for a in alerts)
-    assert any(a.trade_id == 2 and "价内" in a.message for a in alerts)
-    assert any(a.trade_id == 2 and "倍" in a.message for a in alerts)
-    assert any(a.trade_id == 3 and "到期" in a.message for a in alerts)
+    assert any(a.trade_id == 1 and "has captured" in a.message for a in alerts)
+    assert any(a.trade_id == 2 and "in the money" in a.message for a in alerts)
+    assert any(a.trade_id == 2 and "x the premium" in a.message for a in alerts)
+    assert any(a.trade_id == 3 and "expired" in a.message for a in alerts)
     assert len(rows) == 2
 
 
@@ -183,7 +183,7 @@ def test_stock_without_an_earnings_date_is_refused():
         prov = FakeProvider({"ABC": 30.0}, earnings={"ABC": missing})
         with pytest.raises(LookupError):
             screen_ticker(prov, Config(), "ABC", 8000, today=TODAY)
-        assert scan(prov, Config(), ["ABC"], 8000, today=TODAY).errors == {"ABC": "查不到下次财报日"}
+        assert scan(prov, Config(), ["ABC"], 8000, today=TODAY).errors == {"ABC": "no upcoming earnings date found"}
         flagged = screen_ticker(prov, Config(avoid_earnings=False), "ABC", 8000, today=TODAY)
         assert flagged and all(i.earnings_unknown for i in flagged)
         fund = screen_ticker(prov, Config(), "ABC", 8000, today=TODAY, is_fund=True)
@@ -199,7 +199,7 @@ def test_just_reported_stock_gets_an_estimated_next_date():
 def test_scan_scores_and_picks_one_per_ticker():
     cfg = Config()
     result = scan(FakeProvider({"ABC": 30.0, "BIG": 400.0}), cfg, ["ABC", "BIG", "NOPE"], 8000, today=TODAY)
-    assert result.errors == {"NOPE": "没有价格历史"}
+    assert result.errors == {"NOPE": "no price history"}
     assert all(i.metrics is result.metrics[i.ticker] and i.iv_hv and i.score > 0 for i in result.ideas)
     picks = best_per_ticker(result.ideas, cfg)
     assert sorted(i.ticker for i in picks) == ["ABC", "BIG"]
@@ -311,7 +311,7 @@ def test_monitor_values_a_spread_as_short_minus_long(tmp_path):
     alerts, rows = check(prov, j, cfg, today=TODAY)
     chain = {q.strike: q.mid for q in prov.chain("BIG", date.fromisoformat(exp), "put")}
     assert rows[0]["mid"] == pytest.approx(chain[380.0] - chain[375.0])
-    assert any(a.trade_id == 1 and "已赚到" in a.message for a in alerts)
-    assert any(a.trade_id == 2 and "两腿都已价内" in a.message for a in alerts)
-    assert any(a.trade_id == 2 and "倍" in a.message for a in alerts)
+    assert any(a.trade_id == 1 and "has captured" in a.message for a in alerts)
+    assert any(a.trade_id == 2 and "both legs in the money" in a.message for a in alerts)
+    assert any(a.trade_id == 2 and "x the premium" in a.message for a in alerts)
 

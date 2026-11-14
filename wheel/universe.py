@@ -35,7 +35,7 @@ def top_companies(provider, cfg, today=None, log=print, cache=CACHE):
         stale = cached or _read(SNAPSHOT)
         if not stale:
             raise
-        log(f"  市值榜获取失败（{e}），改用 {stale['date']} 的名单")
+        log(f"  market-cap ranking unavailable ({e}); using the list from {stale['date']}")
         return stale["companies"][:cfg.top_n]
 
 

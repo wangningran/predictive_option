@@ -1,41 +1,41 @@
-# 轮子策略配置。改完直接保存，下次运行生效。
+# Strategy settings. Save your changes; they apply on the next run.
 
 [account]
-account_size = 10000        # 账户总资金（美元）
-cash_reserve_pct = 0.20     # 永远保留 20% 现金不动，用来应对被行权、补救
-max_ticker_pct = 0.50       # 单只股票（Put 担保金 + 正股市值）最多占账户 50%
-fee_per_contract = 0.65     # 每张合约单边费用（佣金 + 监管费），到 moomoo App 里核实后修改
+account_size = 10000        # total account size in USD
+cash_reserve_pct = 0.20     # always keep 20% in cash, for assignments and repairs
+max_ticker_pct = 0.50       # one ticker (put collateral + share value) may use at most 50% of the account
+fee_per_contract = 0.65     # cost per contract per side (commission + regulatory fees); check your broker's schedule
 risk_free_rate = 0.04
 
 [rules]
-dte_min = 25                # 到期天数范围
+dte_min = 25                # days-to-expiry range
 dte_max = 45
-delta_min = 0.15            # |Delta| 范围，约等于被行权概率
+delta_min = 0.15            # |delta| range, roughly the chance of assignment
 delta_max = 0.30
-min_open_interest = 100     # 未平仓量太小的合约成交差
-max_spread_pct = 0.15       # 买卖价差 / 中间价 上限
-avoid_earnings = true       # 到期前有财报的合约不选
-calls_above_cost_basis = true  # Covered Call 行权价不低于持股成本
-take_profit = 0.50          # 赚到权利金 50% 就提醒平仓
-roll_dte = 21               # 剩 21 天还没赚够，提醒处理
-loss_multiple = 2.0         # 亏损达到权利金 2 倍时提醒止损
-near_strike_pct = 0.02      # 现价距行权价 2% 以内时提醒
-target_delta = 0.20         # 每只股票只列 |Delta| 最接近这个值的合约
-target_dte = 35             # 优先选离这个天数最近的到期日
-max_expiries = 2            # 每只股票最多看几个到期日
+min_open_interest = 100     # contracts with little open interest fill badly
+max_spread_pct = 0.15       # maximum (ask - bid) / mid
+avoid_earnings = true       # skip contracts that expire after an earnings report
+calls_above_cost_basis = true  # covered-call strikes no lower than the share cost
+take_profit = 0.50          # alert to close once 50% of the premium is captured
+roll_dte = 21               # alert when 21 days remain and the target is not reached
+loss_multiple = 2.0         # alert to stop out when the loss reaches 2x the premium
+near_strike_pct = 0.02      # alert when the price is within 2% of the strike
+target_delta = 0.20         # per ticker, list only the contract with |delta| closest to this
+target_dte = 35             # prefer the expiry nearest this many days
+max_expiries = 2            # expiries to look at per ticker
 
 [spreads]
-# 股价太高、买不起 100 股时，改用 Put 信用价差：卖一张 Put，再买一张行权价更低的 Put。
-max_loss_per_spread = 500   # 单笔最大亏损上限（美元）=（行权价之差 − 净收入）× 100 + 手续费
-min_credit_pct = 0.20       # 净收入至少是行权价之差的 20%
-min_natural_credit_pct = 0.50  # 按最差成交价（卖在买价、买在卖价）算，净收入至少还剩中间价的一半
+# When 100 shares cost too much, use a put credit spread: sell one put and buy a lower-strike put.
+max_loss_per_spread = 500   # maximum loss per spread in USD = (strike difference - net credit) x 100 + fees
+min_credit_pct = 0.20       # net credit must be at least 20% of the strike difference
+min_natural_credit_pct = 0.50  # at the worst fill (sell at bid, buy at ask) at least half the mid credit must remain
 
 [universe]
-universe_mode = "top100"    # "top100" = 在美上市、市值最大的公司（自动更新）；"watchlist" = 只扫下面的 tickers
+universe_mode = "top100"    # "top100" = largest US-listed companies by market cap (auto-refreshed); "watchlist" = only the tickers below
 top_n = 100
-universe_refresh_days = 7   # 市值榜每 7 天重新拉一次
-btc_tickers = ["IBIT"]      # BTC 敞口：贝莱德比特币现货 ETF，期权流动性最好，moomoo 可交易
+universe_refresh_days = 7   # refresh the market-cap ranking every 7 days
+btc_tickers = ["IBIT"]      # BTC exposure: BlackRock's spot bitcoin ETF, the most liquid options
 
 [watchlist]
-# 只有 universe_mode = "watchlist" 时才用
+# used only when universe_mode = "watchlist"
 tickers = ["BAC", "VZ", "T", "PFE", "KMI", "KDP", "CMCSA", "VICI", "SOFI", "NU", "CMG", "MNST", "XLF", "XLU", "FXI", "SLV"]

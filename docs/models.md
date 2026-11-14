@@ -1,21 +1,21 @@
-# 模型和计算方法
+# Models and calculations
 
-这份文档说明工具里每个数字是怎么算出来的，以及这些模型的局限。对应的代码在 `wheel/` 目录下。
+This document explains how every number the tool shows is computed, and where the models fall short. The code lives in `wheel/`.
 
-## 1. 整体流程
+## 1. Pipeline
 
 ```
-扫描范围 ──▶ 价格历史 ──▶ 走势和波动率指标 ──▶ 期权链 ──▶ 候选合约 ──▶ 打分排序
-universe.py   data.py       research.py          data.py     screener.py   screener.py
+Universe ──▶ Price history ──▶ Trend and volatility ──▶ Option chains ──▶ Candidate trades ──▶ Score and rank
+universe.py   data.py           research.py              data.py           screener.py          screener.py
 ```
 
-1. **扫描范围**（`universe.py`）：BTC 标的（默认 IBIT）加上在美上市、市值最大的 100 家公司。市值榜每 7 天更新一次；拉不到时用缓存或内置名单。同一家公司有多个股票类别时只留价格较低的一个（留 BRK-B，不留 BRK-A），优先股和场外交易的股票被排除。
-2. **价格历史**：一次批量取回所有标的过去一年的日收盘价。
-3. **期权链**：每只标的取离 35 天最近的最多两个到期日（都在 25–45 天内）。
+1. **Universe** (`universe.py`): the BTC tickers (IBIT by default) plus the 100 largest US-listed companies by market cap. The ranking refreshes every 7 days; when it cannot be fetched, the cache or a shipped snapshot is used. Where a company has several share classes only the cheaper one is kept (BRK-B, not BRK-A); preferred shares and over-the-counter listings are dropped.
+2. **Price history**: one year of daily closes for every ticker, fetched in batches.
+3. **Option chains**: for each ticker, up to two expiries between 25 and 45 days out, nearest to 35 days first.
 
-## 2. 期权定价：Black-Scholes（`bs.py`）
+## 2. Option pricing: Black-Scholes (`bs.py`)
 
-Put 和 Call 的理论价格：
+Theoretical put and call prices:
 
 ```
 d1 = [ln(S/K) + (r + σ²/2)·T] / (σ·√T)
@@ -25,148 +25,148 @@ Call = S·N(d1) − K·e^(−rT)·N(d2)
 Put  = K·e^(−rT)·N(−d2) − S·N(−d1)
 ```
 
-其中 S 是现价，K 是行权价，T 是到期时间（年），r 是无风险利率（默认 4%），σ 是波动率，N 是标准正态分布的累积分布函数。
+S is the price, K the strike, T the time to expiry in years, r the risk-free rate (4% by default), σ the volatility and N the standard normal cumulative distribution.
 
-- **Delta**：Call 是 N(d1)，Put 是 N(d1) − 1。
-- **隐含波动率（IV）**：已知期权的市场价格，反过来求 σ。用二分法求解。输入的市场价格是买卖报价的中间价。工具不直接用数据源给的 IV，因为它在非交易时段不可靠。
+- **Delta**: N(d1) for a call, N(d1) − 1 for a put.
+- **Implied volatility (IV)**: the σ that reproduces the option's market price, found by bisection. The market price used is the mid of bid and ask. The data source's own IV is not used because it is unreliable outside market hours.
 
-局限：模型假设波动率恒定、价格连续变动、只能到期行权。美股期权可以提前行权，股价会跳空，所以 Delta 只是近似的概率。
+Limits: the model assumes constant volatility, continuous prices and exercise only at expiry. US equity options can be exercised early and prices gap, so delta is only an approximate probability.
 
-## 3. 走势和波动率指标（`research.py`）
+## 3. Trend and volatility (`research.py`)
 
-对每只标的，用过去一年的日收盘价计算：
+From one year of daily closes:
 
-| 指标 | 算法 |
+| Metric | Calculation |
 |---|---|
-| **HV20**（20 日实际波动率） | 最近 20 个交易日对数收益率的标准差 × √252（BTC 现货用 √365，因为它每天都交易） |
-| **HV 位置** | 今天的 HV20 在它自己一年区间里的位置：(当前 − 最低) ÷ (最高 − 最低)，0 到 1 |
-| **50 日、200 日均线** | 最近 50 个和 200 个收盘价的平均值 |
-| **是否在 200 日线上方** | 现价和 200 日均线比较；历史不足 200 天时不判断 |
-| **1 日、5 日、1 月涨跌** | 和 1、5、21 个交易日前的收盘价相比 |
-| **距一年高点** | 现价 ÷ 一年内最高收盘价 − 1 |
-| **最大回撤** | 一年内从任一高点到之后低点的最大跌幅 |
+| **HV20** (20-day historical volatility) | Standard deviation of the last 20 daily log returns × √252 (√365 for spot BTC, which trades every day) |
+| **HV rank** | Where today's HV20 sits in its own one-year range: (now − low) ÷ (high − low), from 0 to 1 |
+| **50- and 200-day averages** | Mean of the last 50 and 200 closes |
+| **Above the 200-day average** | Price compared with the 200-day average; not judged with fewer than 200 days of history |
+| **1-day, 5-day, 1-month change** | Against the close 1, 5 and 21 trading days ago |
+| **Off the 1-year high** | Price ÷ highest close of the year − 1 |
+| **Maximum drawdown** | The largest fall from any peak to a later trough within the year |
 
-## 4. 候选合约（`screener.py`）
+## 4. Candidate trades (`screener.py`)
 
-### 卖出腿的筛选条件
+### Rules for the short leg
 
-一张 Put 要同时满足：
+A put must meet all of these:
 
-- 行权价低于现价（虚值）；
-- \|Delta\| 在 0.15–0.30 之间；
-- 买卖价差 ÷ 中间价 ≤ 15%；
-- 未平仓量 ≥ 100；
-- 到期日之前没有财报。
+- strike below the price (out of the money);
+- \|delta\| between 0.15 and 0.30;
+- bid-ask spread ÷ mid ≤ 15%;
+- open interest ≥ 100;
+- no earnings report before expiry.
 
-### 现金担保 Put
+### Cash-secured puts
 
-如果"行权价 × 100"不超过可用现金，也不超过账户的 50%，就生成一条现金担保 Put：
-
-```
-收入     = 中间价 × 100 − 手续费
-占用资金 = 行权价 × 100
-收益     = 收入 ÷ 占用资金
-年化     = 收益 × 365 ÷ 到期天数
-盈亏平衡 = 行权价 − 中间价
-安全垫   = (现价 − 盈亏平衡) ÷ 现价
-```
-
-### Put 信用价差
-
-如果这只标的没有一张 Put 做得起，就改为价差。对每个合格的卖出腿，在更低的行权价里找买入腿：
+If strike × 100 fits within the available cash and within half the account, the tool lists a cash-secured put:
 
 ```
-宽度     = 卖出行权价 − 买入行权价
-净收入   = 卖出腿中间价 − 买入腿中间价
-最差净收入 = 卖出腿买价 − 买入腿卖价
-最大亏损 = (宽度 − 净收入) × 100 + 两腿手续费
-收益     = (净收入 × 100 − 两腿手续费) ÷ 最大亏损
+Premium   = mid × 100 − fees
+Capital   = strike × 100
+Return    = premium ÷ capital
+Annual    = return × 365 ÷ days to expiry
+Breakeven = strike − mid
+Cushion   = (price − breakeven) ÷ price
 ```
 
-价差要满足：
+### Put credit spreads
 
-- 最大亏损 ≤ $500（`max_loss_per_spread`），也不超过可用现金；
-- 净收入 ÷ 宽度 ≥ 20%；
-- 最差净收入 ≥ 净收入的 50%（否则两腿报价太宽，中间价不可信）。
-
-同一个卖出腿有多个买入腿可选时，取**宽度最大**的那个。宽度越大，结果越不受买入腿报价的影响。
-
-### 胜率
+If no put on the ticker is affordable, the tool builds spreads instead. For each qualifying short leg it looks for a long leg among the lower strikes:
 
 ```
-胜率 ≈ 1 − |卖出腿的 Delta|
+Width           = short strike − long strike
+Credit          = short mid − long mid
+Natural credit  = short bid − long ask
+Maximum loss    = (width − credit) × 100 + fees on both legs
+Return          = (credit × 100 − fees on both legs) ÷ maximum loss
 ```
 
-这是到期时股价没有跌破卖出行权价的近似概率。它来自期权价格本身，是市场隐含的概率，不是对未来的预测。
+A spread must satisfy:
 
-### 财报日的处理
+- maximum loss ≤ $500 (`max_loss_per_spread`) and within the available cash;
+- credit ÷ width ≥ 20%;
+- natural credit ≥ 50% of the mid credit (otherwise the quotes are too wide for the mid to be trusted).
 
-- 数据源有未来的财报日：到期日在它之后的合约都不做。
-- 数据源只有刚过去的财报日（公司刚发完财报，下次日期还没公布）：按"上次 + 80 天"估算下一次。
-- 查不到，或日期早于 80 天前：这只股票整个排除，并在输出末尾列出。Yahoo 限流时查询会静默失败，所以"查不到"不能当成"没有财报"。
-- ETF（包括 IBIT）没有财报，跳过这项检查。
+When several long legs fit one short leg, the **widest** spread is kept. A wider spread depends less on the long leg's quote.
 
-## 5. 打分和排序
-
-每只标的只保留一条：\|Delta\| 最接近 0.20 的合约。然后按分数排序。
-
-**IV/HV** = 平值期权的隐含波动率 ÷ HV20。平值期权取行权价最接近现价的那张 Put。
+### Win rate
 
 ```
-现金担保 Put 的分数 = 年化收益 × clamp(IV/HV, 0.7, 1.5) × 趋势折扣
-Put 价差的分数      =           clamp(IV/HV, 0.7, 1.5) × 趋势折扣
+Win rate ≈ 1 − |delta of the short leg|
 ```
 
-- `clamp` 把 IV/HV 限制在 0.7 到 1.5 之间，避免极端值主导排序。
-- **趋势折扣**：现价在 200 日均线下方，乘 0.75；1 个月跌幅超过 15%，再乘 0.75。
-- 价差的分数里不含收益率。同样 Delta 的价差，收益率几乎相同，而且大致等于风险的公平价格，所以只按"期权贵不贵"和趋势来排。
+This approximates the chance the price stays above the short strike at expiry. It comes from the option price itself: it is the probability the market implies, not a forecast.
 
-这个分数是一个透明的排序规则，不是预测模型。它没有用历史数据拟合过，也没有验证过分数高的合约事后表现更好。
+### Earnings dates
 
-## 6. 持仓监控（`monitor.py`）
+- The data source has a future earnings date: contracts expiring after it are skipped.
+- It only has a date just past (the company reported and has not yet announced the next one): the next is estimated at the last date + 80 days.
+- No date, or one more than 80 days old: the whole ticker is excluded and listed at the end of the output. Under rate limiting the lookup fails silently, so "not found" must not be read as "no earnings".
+- ETFs, IBIT included, have no earnings and skip this check.
 
-对每笔未平仓的交易，取当前的平仓成本：单腿是期权中间价，价差是卖出腿减买入腿。
+## 5. Scoring and ranking
 
-| 条件 | 提醒 |
+Each ticker keeps one trade: the one whose \|delta\| is closest to 0.20. Those are then sorted by score.
+
+**IV/HV** = implied volatility of the at-the-money put (the strike closest to the price) ÷ HV20.
+
+```
+Cash-secured put score = annual return × clamp(IV/HV, 0.7, 1.5) × trend discount
+Put spread score       =                 clamp(IV/HV, 0.7, 1.5) × trend discount
+```
+
+- `clamp` keeps IV/HV between 0.7 and 1.5 so extreme values do not dominate.
+- **Trend discount**: × 0.75 when the price is below its 200-day average, and another × 0.75 when it fell more than 15% in a month.
+- Spread scores leave out the return. Spreads at the same delta pay almost the same, and roughly the fair price of their risk, so only richness and trend are ranked.
+
+The score is a transparent ranking rule, not a predictive model. It has not been fitted to historical data, and there is no evidence yet that higher-scoring trades do better afterwards.
+
+## 6. Position monitoring (`monitor.py`)
+
+For each open trade the current cost to close is taken: the option's mid for a single leg, short minus long for a spread.
+
+| Condition | Alert |
 |---|---|
-| (卖出价 − 现值) ÷ 卖出价 ≥ 50% | 止盈 |
-| (现值 − 卖出价) ≥ 卖出价 × 2 | 止损 |
-| 剩余天数 ≤ 21 | 考虑平仓或展期 |
-| 现价越过卖出行权价 | 已价内 |
-| 价差：现价低于买入行权价 | 接近最大亏损 |
-| 现价距行权价不到 2% | 临近行权价 |
-| 到期前有财报 | 财报风险 |
-| 总占用超过账户的 80%，或单只超过 50% | 仓位超限 |
+| (sold for − now) ÷ sold for ≥ 50% | Take profit |
+| (now − sold for) ≥ 2 × sold for | Stop loss |
+| ≤ 21 days left | Consider closing or rolling |
+| Price through the short strike | In the money |
+| Spread: price below the long strike | Near maximum loss |
+| Price within 2% of the strike | Near the strike |
+| Earnings before expiry | Earnings risk |
+| Total capital over 80% of the account, or one name over 50% | Over the position limit |
 
-## 7. 回测（`backtest.py`）
+## 7. Backtest (`backtest.py`)
 
-只模拟轮子策略（现金担保 Put 和 Covered Call），**不支持价差**。
+It simulates only the wheel (cash-secured puts and covered calls), **not spreads**.
 
-每个交易日：
+On each trading day:
 
-1. 有持仓的期权：到期就结算（Put 被行权则买入股票，Call 被行权则卖出股票）；没到期就估算现值，赚到 50% 就平仓。
-2. 没有期权持仓：持有不足 100 股就卖 Put，否则卖 Call。行权价按目标 Delta 反推，再取整到常见的行权价间隔。Call 的行权价不低于持股成本。
+1. With an option open: settle it at expiry (an assigned put buys shares, an assigned call sells them); otherwise estimate its value and close it once 50% of the premium is captured.
+2. With no option open: sell a put if holding fewer than 100 shares, otherwise sell a call. The strike is derived from the target delta and rounded to a common strike increment. Call strikes are kept at or above the cost basis.
 
-关键假设：免费数据里没有历史期权价格，所以**期权价格由 Black-Scholes 估算**，波动率取"过去 20 天实际波动率 × 1.1"，每次成交再扣 5% 的买卖价差损失。
+Key assumption: free data has no historical option prices, so **option prices are estimated with Black-Scholes** using 20-day historical volatility × 1.1, with a 5% bid-ask haircut on every fill.
 
-这个假设忽略了：
+This ignores:
 
-- 虚值 Put 的 IV 通常高于平值（偏斜）；
-- 财报和暴跌前 IV 会飙升，实际亏损比模型里大；
-- 成交不了、只能以更差价格成交的情况。
+- the higher IV of out-of-the-money puts (skew);
+- the IV spikes before earnings and crashes, which make real losses larger than the model's;
+- fills that do not happen, or happen only at worse prices.
 
-所以回测只适合比较不同的规则（Delta、天数、止盈比例），不能当成收益预测。实盘结果通常更差。
+So the backtest is for comparing rules (delta, days, profit target), not for forecasting returns. Live results are usually worse.
 
-## 8. 数据来源和它带来的误差
+## 8. Data and the errors it introduces
 
-- 行情来自 Yahoo Finance，延迟约 15 分钟。
-- "参考价"是买卖报价的中间价，实际成交往往更差。大盘股的期权报价有时很宽。
-- 非交易时段的买卖报价经常是 0，这些合约会被自动跳过。请在美股交易时段运行。
-- Yahoo 会限流。工具会自动重试，失败的标的在扫描结束时再试一次，仍然失败的列在输出末尾。
+- Prices come from Yahoo Finance and are delayed about 15 minutes.
+- The reference price is the mid of bid and ask; real fills are often worse, and large-cap option quotes are sometimes wide.
+- Outside market hours bids and asks are often zero, and those contracts are skipped. Run the tool during US market hours.
+- Yahoo rate limits. The tool retries, gives failed tickers one more try at the end of a scan, and lists any that still fail.
 
-## 9. 这套模型不做什么
+## 9. What the model does not do
 
-- 不预测涨跌。它只回答"在给定规则下，哪些合约的定价相对划算"。
-- 不保证 IV/HV 大于 1 就赚钱。IV 高有时正是因为市场知道有事要发生。
-- 不处理组合层面的相关性。同时卖几只科技股的 Put，大盘下跌时会一起亏。
-- 不自动下单。
+- It does not predict direction. It only answers which contracts are relatively well priced under the rules.
+- IV/HV above 1 does not guarantee profit. IV is sometimes high because the market knows something is coming.
+- It does not handle correlation across positions. Puts sold on several tech stocks will lose together in a sell-off.
+- It does not place orders.

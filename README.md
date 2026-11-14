@@ -1,124 +1,124 @@
-# predictive_option：BTC 和大盘股期权的开单研究工具
+# predictive_option: option-selling research for BTC and large-cap stocks
 
-扫描两类标的，找出值得卖出的期权，并跟踪持仓：
+Scans two groups of underlyings for options worth selling, and tracks the positions you open:
 
-- **BTC**：通过 IBIT（贝莱德比特币现货 ETF）的期权。它在 moomoo 可以交易，期权流动性好。
-- **市值前 100 的美股**：在美国上市、市值最大的 100 家公司（含 TSM、ASML 等 ADR），名单每 7 天自动更新。
+- **BTC**, through options on IBIT (BlackRock's spot bitcoin ETF). It trades at mainstream brokers and its options are liquid.
+- **The 100 largest US-listed companies by market cap**, ADRs such as TSM and ASML included. The list refreshes every 7 days.
 
-| 命令 | 作用 |
+| Command | What it does |
 |---|---|
-| `screen` | 扫描全部标的，分三块列出候选：BTC、现金担保 Put、Put 信用价差；持有正股时再加 Covered Call |
-| `research NVDA` | 单只股票的研究卡片：走势、均线、波动率、财报日和全部候选合约 |
-| `monitor` | 检查持仓：止盈、止损、临近或跌破行权价、财报、仓位超限 |
-| `log` / `report` | 交易日志：记录开仓、平仓、到期、被行权，统计盈亏和胜率 |
-| `backtest` | 用历史价格回测轮子策略（只支持现金担保 Put 和 Covered Call，不支持价差） |
+| `screen` | Scans everything and lists candidates in three groups: BTC, cash-secured puts, put credit spreads; plus covered calls on shares you hold |
+| `research NVDA` | A research card for one ticker: trend, averages, volatility, earnings date and every candidate contract |
+| `monitor` | Checks open positions: take profit, stop loss, near or through the strike, earnings, position limits |
+| `log` / `report` | Trade journal: records opens, closes, expiries and assignments, and reports P&L and win rate |
+| `backtest` | Backtests the wheel on historical prices (cash-secured puts and covered calls only, no spreads) |
 
-> 本工具只做筛选、提醒和记录，**不会自动下单**。所有数字仅供学习参考，不构成投资建议。
+> The tool screens, alerts and records. **It never places orders.** Every number is for learning and is not investment advice.
 
-**文档**：[期权卖方策略的原理](docs/principles.md) · [模型和计算方法](docs/models.md)
+**Docs**: [Principles of option selling](docs/principles.md) · [Models and calculations](docs/models.md)
 
-## 两种开仓方式
+## Two ways to open a trade
 
-**现金担保 Put**：卖一张 Put，账户里留足"行权价 × 100"的现金。被行权就按行权价买入 100 股。只有股价较低的标的才做得起（1 万美元账户大约是 $50 以下，如 IBIT、BAC、PFE、VZ）。
+**Cash-secured put**: sell a put and keep strike × 100 in cash. If assigned, you buy 100 shares at the strike. Only low-priced underlyings are affordable this way (roughly under $50 on a $10,000 account: IBIT, BAC, PFE, VZ and the like).
 
-**Put 信用价差**：大盘股大多每股几百美元，买不起 100 股，所以改成卖一张 Put、同时买一张行权价更低的 Put。
+**Put credit spread**: most large caps cost hundreds of dollars a share, so buying 100 shares is out of reach. Instead, sell a put and buy a put with a lower strike.
 
-- 最大亏损固定 =（两个行权价之差 − 净收入）× 100 + 手续费，默认不超过 $500。
-- 例子：MSFT 现价 $524，卖 495 Put、买 490 Put，净收入 $1.08。到期时股价高于 $495，赚 $106；低于 $490，亏 $394。
-- **务必理解**：价差的胜率约 70%–80%，但亏一次大约等于赚三次。按中间价成交时，长期期望接近零。只有期权定价明显偏贵（IV/HV 大于 1）时才有优势。所以表格里不显示价差的"年化收益"，那个数字会严重误导。
-- 需要券商开通价差权限。到期前如果股价落在两个行权价之间，要主动平仓，否则卖出腿会被行权。
+- The maximum loss is fixed: (strike difference − net credit) × 100 + fees, $500 at most by default.
+- Example: MSFT at $524, sell the 495 put and buy the 490 put for a net $1.08. Above $495 at expiry you make $106; below $490 you lose $394.
+- **Understand this**: spreads win about 70–80% of the time, but one loss costs about three wins. Traded at mid prices the long-run expectation is close to zero; there is an edge only when options are clearly overpriced (IV/HV above 1). That is why the table shows no annualized return for spreads: that number would be badly misleading.
+- Your broker must approve you for spreads. If the price sits between the two strikes near expiry, close the spread, or the short leg will be assigned.
 
-## 表格里的研究指标
+## The research columns
 
-| 列 | 含义 |
+| Column | Meaning |
 |---|---|
-| Delta / 胜率 | 卖出腿的 Delta；胜率 ≈ 1 − \|Delta\|，即到期时股价没跌破行权价的大致概率 |
-| 资金 | 占用的资金。现金担保 Put 是行权价 × 100；价差是最大亏损 |
-| 安全垫 | 股价跌多少才到盈亏平衡点 |
-| IV/HV | 平值隐含波动率 ÷ 过去 20 天实际波动率。大于 1 说明期权比实际波动贵，卖方占优 |
-| 提示 | 200 日线下方、1 个月跌幅超过 15%、IV 低于实际波动 |
+| Delta / Win | Delta of the short leg; win ≈ 1 − \|delta\|, the rough chance the price stays above the strike at expiry |
+| Capital | Money tied up: strike × 100 for a cash-secured put, the maximum loss for a spread |
+| Cushion | How far the price can fall before breakeven |
+| IV/HV | At-the-money implied volatility ÷ 20-day historical volatility. Above 1 means options are pricier than actual movement, which favours the seller |
+| Notes | Below the 200-day average, down more than 15% in a month, IV below realized |
 
-每只股票只列一条：Delta 最接近 0.20 的合约。排序规则：现金担保 Put 按"年化收益 × IV/HV"，价差只按 IV/HV；处于 200 日线下方或 1 个月跌超 15% 的打 75 折。
+Each ticker gets one line: the contract with delta closest to 0.20. Cash-secured puts are ranked by annualized return × IV/HV, spreads by IV/HV alone; anything below its 200-day average or down more than 15% in a month is discounted by 25%.
 
-**财报**：到期日之前有财报的合约一律不列。查不到财报日的股票会被排除，并在输出末尾列出原因。刚发完财报、下次日期还没公布的，按"上次 + 80 天"估算。
+**Earnings**: contracts that expire after an earnings report are never listed. Stocks whose earnings date cannot be found are excluded and listed, with the reason, at the end of the output. For a company that has just reported and not yet announced its next date, the next one is estimated at the last date + 80 days.
 
-## 安装
+## Install
 
-需要 Python 3.11 或更高版本。
+Requires Python 3.11 or newer.
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python -m pytest -q                                   # 应该全部通过
+python -m pytest -q                                   # everything should pass
 ```
 
-然后打开 `config.toml`，把 `fee_per_contract` 改成你在券商查到的实际费用。
+Then open `config.toml` and set `fee_per_contract` to what your broker actually charges.
 
-## 日常用法
+## Daily use
 
 ```bash
-# 1. 开盘 45 分钟后扫描（约 1 分钟）
+# 1. Scan about 45 minutes after the open (takes about a minute)
 python -m wheel screen
 
-# 2. 对感兴趣的标的看详情
+# 2. Look closer at anything interesting
 python -m wheel research IBIT
 
-# 3. 成交后记日志
-python -m wheel log open IBIT put 35 2026-12-18 --premium 0.65                     # 现金担保 Put
-python -m wheel log open MSFT put 495 2026-12-18 --long-strike 490 --premium 1.08  # 价差，premium 填净收入
+# 3. Log the fill
+python -m wheel log open IBIT put 35 2026-12-18 --premium 0.65                     # cash-secured put
+python -m wheel log open MSFT put 495 2026-12-18 --long-strike 490 --premium 1.08  # spread; premium is the net credit
 
-# 4. 每天检查持仓
+# 4. Check positions every day
 python -m wheel monitor
 
-# 5. 按提醒操作后记录结果
-python -m wheel log close 1 --price 0.30     # 买回平仓（价差填净支出）
-python -m wheel log expire 1                 # 到期作废
-python -m wheel log assign 2                 # 被行权（只适用于单腿 Put / Call）
+# 5. Record what you did about an alert
+python -m wheel log close 1 --price 0.30     # bought back (net debit for a spread)
+python -m wheel log expire 1                 # expired worthless
+python -m wheel log assign 2                 # assigned (single-leg puts and calls only)
 
-# 6. 复盘
+# 6. Review
 python -m wheel report
 ```
 
-日志保存在本机的 `data/journal.csv` 和 `data/stock_ledger.csv`，可以用 Excel 打开。这个仓库是公开的，`data/` 已加入 `.gitignore`，不会被提交。
+The journal lives in `data/journal.csv` and `data/stock_ledger.csv` on your own machine and opens in Excel. This repository is public, so `data/` is in `.gitignore` and never committed.
 
-## 配置（`config.toml`）
+## Configuration (`config.toml`)
 
-- `[account]`：账户大小、现金储备比例、单只标的上限、手续费。
-- `[rules]`：到期天数、Delta 范围、流动性门槛、止盈止损规则。
-- `[spreads]`：单笔价差的最大亏损（默认 $500）和净收入门槛。
-- `[universe]`：`universe_mode = "top100"` 扫市值前 100；改成 `"watchlist"` 只扫 `[watchlist]` 里的股票。`btc_tickers` 是 BTC 相关标的，始终扫描。
+- `[account]`: account size, cash reserve, per-ticker limit, fees.
+- `[rules]`: days to expiry, delta range, liquidity thresholds, profit-taking and stop-loss rules.
+- `[spreads]`: the maximum loss per spread ($500 by default) and the credit thresholds.
+- `[universe]`: `universe_mode = "top100"` scans the 100 largest companies; `"watchlist"` scans only the tickers under `[watchlist]`. `btc_tickers` are always scanned.
 
-## BTC 部分的注意事项
+## BTC notes
 
-- IBIT 只在美股交易时段交易，BTC 全天 24 小时交易。周末或夜间 BTC 大跌，IBIT 会在下一个开盘直接跳空，来不及调整。
-- BTC 的波动率通常是大盘股的两倍，权利金高是因为风险高。
-- 扫描结果会先显示 BTC 现价、近期涨跌、是否在 200 日线上方、实际波动率处于一年中的什么位置。
+- IBIT trades only during US market hours while BTC trades around the clock. If BTC drops at night or over a weekend, IBIT gaps at the next open and there is no chance to adjust.
+- BTC is usually about twice as volatile as a large-cap stock. The premium is high because the risk is high.
+- The scan first shows BTC's price, recent moves, whether it is above its 200-day average, and where its realized volatility sits in its one-year range.
 
-## 数据来源和限制
+## Data and limits
 
-- 行情来自 Yahoo Finance（yfinance），免费，延迟约 15 分钟。**请在美股交易时段运行**，盘后的买卖报价经常是 0。
-- Yahoo 会限流。工具会自动重试；市值榜拉不到时，改用缓存或内置的名单（`wheel/universe_snapshot.json`）。
-- "参考价"是买卖报价的中间价。大盘股的期权价差有时很宽，实际成交价会更差，请用限价单。
-- 回测里的期权价格由 Black-Scholes 模型估算，只能用来比较规则，不能当成收益预测。
+- Prices come from Yahoo Finance, free and delayed about 15 minutes. **Run it during US market hours**: after the close bids and asks are often zero.
+- Yahoo rate limits. The tool retries; if the market-cap ranking cannot be fetched it falls back to the cache or the shipped list (`wheel/universe_snapshot.json`).
+- The reference price is the mid between bid and ask. Large-cap option quotes can be wide and real fills worse, so use limit orders.
+- Backtest option prices are estimated with Black-Scholes. Use the backtest to compare rules, not to forecast returns.
 
-## 推送提醒（可选）
+## Push alerts (optional)
 
-设置 `TELEGRAM_BOT_TOKEN` 和 `TELEGRAM_CHAT_ID` 两个环境变量后，运行 `python -m wheel monitor --notify`。
+Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`, then run `python -m wheel monitor --notify`.
 
-## 代码结构
+## Code layout
 
 ```
 wheel/
-  universe.py   扫描范围：BTC 标的 + 市值前 100（带缓存和内置名单）
-  research.py   单只标的的走势和波动率指标
-  screener.py   候选合约：现金担保 Put、Put 信用价差、Covered Call，以及打分
-  data.py       行情数据源（Yahoo）
-  bs.py         Black-Scholes 定价、Delta、隐含波动率
-  journal.py    交易日志、持仓和盈亏
-  monitor.py    持仓监控和提醒
-  backtest.py   回测
-  config.py     读取 config.toml
-  cli.py        命令行
-tests/          单元测试（用模拟数据，不需要联网）
-docs/           原理和模型说明
+  universe.py   what to scan: BTC tickers + top 100 by market cap (cached, with a shipped list)
+  research.py   trend and volatility metrics per ticker
+  screener.py   candidates: cash-secured puts, put credit spreads, covered calls, and scoring
+  data.py       market data (Yahoo)
+  bs.py         Black-Scholes pricing, delta, implied volatility
+  journal.py    trade journal, positions and P&L
+  monitor.py    position checks and alerts
+  backtest.py   backtest
+  config.py     reads config.toml
+  cli.py        command line
+tests/          unit tests (simulated data, no network)
+docs/           principles and model notes
 ```
