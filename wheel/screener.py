@@ -120,9 +120,14 @@ def _put_spread(short, long, S, dte, cfg):
     )
 
 
+def is_monthly(d):
+    """Standard monthly expiry: the third Friday. Weeklies, especially in holiday weeks, are often too thin to trade."""
+    return d.weekday() == 4 and 15 <= d.day <= 21
+
+
 def _expiries(provider, ticker, today, cfg):
     exps = [e for e in provider.expirations(ticker) if cfg.dte_min <= (e - today).days <= cfg.dte_max]
-    exps.sort(key=lambda e: abs((e - today).days - cfg.target_dte))
+    exps.sort(key=lambda e: (not is_monthly(e), abs((e - today).days - cfg.target_dte)))
     return exps[:cfg.max_expiries]
 
 

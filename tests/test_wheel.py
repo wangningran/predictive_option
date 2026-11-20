@@ -315,3 +315,15 @@ def test_monitor_values_a_spread_as_short_minus_long(tmp_path):
     assert any(a.trade_id == 2 and "both legs in the money" in a.message for a in alerts)
     assert any(a.trade_id == 2 and "x the premium" in a.message for a in alerts)
 
+
+def test_monthly_expiry_comes_first():
+    from wheel.screener import _expiries, is_monthly
+    assert is_monthly(date(2026, 12, 18)) and not is_monthly(date(2026, 12, 24))
+
+    class Weeklies(FakeProvider):
+        def expirations(self, t):
+            return [date(2026, 12, 18), date(2026, 12, 24), date(2026, 12, 31)]
+
+    picked = _expiries(Weeklies({"ABC": 30.0}), "ABC", date(2026, 11, 20), Config(max_expiries=2))
+    assert picked == [date(2026, 12, 18), date(2026, 12, 24)]   # 12/24 is closest to 35 days, but the monthly leads
+
